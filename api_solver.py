@@ -90,7 +90,10 @@ class TurnstileAPIServer:
         self.useragent = useragent
         self.thread_count = thread
         self.proxy_support = proxy_support
-        self.browser_pool = asyncio.Queue()
+        self.browser_pool = []
+        self._browser_counter = 0
+        # Allow 2 concurrent contexts per browser for better throughput
+        self.semaphore = asyncio.Semaphore(thread * 2)
         self.browser_args = []
         if useragent:
             self.browser_args.append(f"--user-agent={useragent}")
@@ -151,102 +154,110 @@ class TurnstileAPIServer:
             elif self.browser_type == "camoufox":
                 browser = await camoufox.start()
 
-            await self.browser_pool.put((_+1, browser))
+            self.browser_pool.append((_+1, browser))
 
             if self.debug:
                 logger.success(f"Browser {_ + 1} initialized successfully")
 
-        logger.success(f"Browser pool initialized with {self.browser_pool.qsize()} browsers")
+        logger.success(f"Browser pool initialized with {len(self.browser_pool)} browsers")
 
 
     async def _solve_turnstile(self, task_id: str, url: str, sitekey: str, action: str = None, cdata: str = None):
         """Solve the Turnstile challenge."""
-        proxy = None
+        async with self.semaphore:
+            proxy = None
 
-        index, browser = await self.browser_pool.get()
+            # Round-robin browser selection for even load distribution
+            self._browser_counter = (self._browser_counter + 1) % len(self.browser_pool)
+            index, browser = self.browser_pool[self._browser_counter]
 
-        if self.proxy_support:
-            proxy_file_path = os.path.join(os.getcwd(), "proxies.txt")
+            if self.proxy_support:
+                proxy_file_path = os.path.join(os.getcwd(), "proxies.txt")
 
-            with open(proxy_file_path) as proxy_file:
-                proxies = [line.strip() for line in proxy_file if line.strip()]
+                with open(proxy_file_path) as proxy_file:
+                    proxies = [line.strip() for line in proxy_file if line.strip()]
 
-            proxy = random.choice(proxies) if proxies else None
+                proxy = random.choice(proxies) if proxies else None
 
-            if proxy:
-                parts = proxy.split(':')
-                if len(parts) == 3:
-                    context = await browser.new_context(proxy={"server": f"{proxy}"})
-                elif len(parts) == 5:
-                    proxy_scheme, proxy_ip, proxy_port, proxy_user, proxy_pass = parts
-                    context = await browser.new_context(proxy={"server": f"{proxy_scheme}://{proxy_ip}:{proxy_port}", "username": proxy_user, "password": proxy_pass})
+                if proxy:
+                    parts = proxy.split(':')
+                    if len(parts) == 3:
+                        context = await browser.new_context(proxy={"server": f"{proxy}"})
+                    elif len(parts) == 5:
+                        proxy_scheme, proxy_ip, proxy_port, proxy_user, proxy_pass = parts
+                        context = await browser.new_context(proxy={"server": f"{proxy_scheme}://{proxy_ip}:{proxy_port}", "username": proxy_user, "password": proxy_pass})
+                    else:
+                        raise ValueError("Invalid proxy format")
                 else:
-                    raise ValueError("Invalid proxy format")
+                    context = await browser.new_context()
             else:
                 context = await browser.new_context()
-        else:
-            context = await browser.new_context()
 
-        page = await context.new_page()
+            page = await context.new_page()
 
-        start_time = time.time()
+            start_time = time.time()
 
-        try:
-            if self.debug:
-                logger.debug(f"Browser {index}: Starting Turnstile solve for URL: {url} with Sitekey: {sitekey} | Proxy: {proxy}")
-                logger.debug(f"Browser {index}: Setting up page data and route")
+            try:
+                if self.debug:
+                    logger.debug(f"Browser {index}: Starting Turnstile solve for URL: {url} with Sitekey: {sitekey} | Proxy: {proxy}")
+                    logger.debug(f"Browser {index}: Setting up page data and route")
 
-            url_with_slash = url + "/" if not url.endswith("/") else url
-            turnstile_div = f'<div class="cf-turnstile" style="background: white;" data-sitekey="{sitekey}"' + (f' data-action="{action}"' if action else '') + (f' data-cdata="{cdata}"' if cdata else '') + '></div>'
-            page_data = self.HTML_TEMPLATE.replace("<!-- cf turnstile -->", turnstile_div)
+                url_with_slash = url + "/" if not url.endswith("/") else url
+                turnstile_div = f'<div class="cf-turnstile" style="background: white;" data-sitekey="{sitekey}"' + (f' data-action="{action}"' if action else '') + (f' data-cdata="{cdata}"' if cdata else '') + '></div>'
+                page_data = self.HTML_TEMPLATE.replace("<!-- cf turnstile -->", turnstile_div)
 
-            await page.route(url_with_slash, lambda route: route.fulfill(body=page_data, status=200))
-            await page.goto(url_with_slash)
+                await page.route(url_with_slash, lambda route: route.fulfill(body=page_data, status=200))
+                await page.goto(url_with_slash)
 
-            if self.debug:
-                logger.debug(f"Browser {index}: Setting up Turnstile widget dimensions")
+                if self.debug:
+                    logger.debug(f"Browser {index}: Setting up Turnstile widget dimensions")
 
-            await page.eval_on_selector("//div[@class='cf-turnstile']", "el => el.style.width = '70px'")
+                await page.eval_on_selector("//div[@class='cf-turnstile']", "el => el.style.width = '70px'")
 
-            if self.debug:
-                logger.debug(f"Browser {index}: Starting Turnstile response retrieval loop")
+                if self.debug:
+                    logger.debug(f"Browser {index}: Starting Turnstile response retrieval loop")
 
-            for _ in range(10):
-                try:
-                    turnstile_check = await page.input_value("[name=cf-turnstile-response]", timeout=2000)
-                    if turnstile_check == "":
-                        if self.debug:
-                            logger.debug(f"Browser {index}: Attempt {_} - No Turnstile response yet")
-                        
-                        await page.locator("//div[@class='cf-turnstile']").click(timeout=1000)
-                        await asyncio.sleep(0.5)
-                    else:
-                        elapsed_time = round(time.time() - start_time, 3)
+                for attempt in range(20):
+                    try:
+                        turnstile_check = await page.evaluate('document.querySelector("[name=cf-turnstile-response]") ? document.querySelector("[name=cf-turnstile-response]").value : ""')
 
-                        logger.success(f"Browser {index}: Successfully solved captcha - {COLORS.get('MAGENTA')}{turnstile_check[:10]}{COLORS.get('RESET')} in {COLORS.get('GREEN')}{elapsed_time}{COLORS.get('RESET')} Seconds")
+                        if not turnstile_check:
+                            if self.debug:
+                                logger.debug(f"Browser {index}: Attempt {attempt} - No Turnstile response yet")
 
-                        self.results[task_id] = {"value": turnstile_check, "elapsed_time": elapsed_time}
-                        self._save_results()
-                        break
-                except:
-                    pass
+                            try:
+                                await page.locator("//div[@class='cf-turnstile']").click(timeout=500)
+                            except:
+                                pass
 
-            if self.results.get(task_id) == "CAPTCHA_NOT_READY":
+                            await asyncio.sleep(0.5)
+                        else:
+                            elapsed_time = round(time.time() - start_time, 3)
+
+                            logger.success(f"Browser {index}: Successfully solved captcha - {COLORS.get('MAGENTA')}{turnstile_check[:10]}{COLORS.get('RESET')} in {COLORS.get('GREEN')}{elapsed_time}{COLORS.get('RESET')} Seconds")
+
+                            self.results[task_id] = {"value": turnstile_check, "elapsed_time": elapsed_time}
+                            self._save_results()
+                            break
+                    except:
+                        pass
+
+                if self.results.get(task_id) == "CAPTCHA_NOT_READY":
+                    elapsed_time = round(time.time() - start_time, 3)
+                    self.results[task_id] = {"value": "CAPTCHA_FAIL", "elapsed_time": elapsed_time}
+                    if self.debug:
+                        logger.error(f"Browser {index}: Timeout solving Turnstile in {COLORS.get('RED')}{elapsed_time}{COLORS.get('RESET')} Seconds")
+
+            except Exception as e:
                 elapsed_time = round(time.time() - start_time, 3)
                 self.results[task_id] = {"value": "CAPTCHA_FAIL", "elapsed_time": elapsed_time}
                 if self.debug:
-                    logger.error(f"Browser {index}: Error solving Turnstile in {COLORS.get('RED')}{elapsed_time}{COLORS.get('RESET')} Seconds")
-        except Exception as e:
-            elapsed_time = round(time.time() - start_time, 3)
-            self.results[task_id] = {"value": "CAPTCHA_FAIL", "elapsed_time": elapsed_time}
-            if self.debug:
-                logger.error(f"Browser {index}: Error solving Turnstile: {str(e)}")
-        finally:
-            if self.debug:
-                logger.debug(f"Browser {index}: Clearing page state")
+                    logger.error(f"Browser {index}: Error solving Turnstile: {str(e)}")
+            finally:
+                if self.debug:
+                    logger.debug(f"Browser {index}: Clearing page state")
 
-            await context.close()
-            await self.browser_pool.put((index, browser))
+                await context.close()
 
     async def process_turnstile(self):
         """Handle the /turnstile endpoint requests."""
