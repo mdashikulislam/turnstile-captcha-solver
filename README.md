@@ -1,50 +1,12 @@
 <div align="center">
- 
   <h2 align="center">Cloudflare - Turnstile Solver</h2>
-  <p align="center">
-A Python-based Turnstile solver using the patchright library, featuring multi-threaded execution, API integration, and support for different browsers. It solves CAPTCHAs quickly and efficiently, with customizable configurations and detailed logging.
-    <br />
-    <br />
-    <a href="https://github.com/Theyka/Turnstile-Solver#-changelog">📜 ChangeLog</a>
-    ·
-    <a href="https://github.com/Theyka/Turnstile-Solver/issues">⚠️ Report Bug</a>
-    ·
-    <a href="https://github.com/Theyka/Turnstile-Solver/issues">💡 Request Feature</a>
-  </p>
-
-  <p align="center">
-    <img src="https://img.shields.io/badge/LICENSE-CC%20BY%20NC%204.0-red?style=for-the-badge"/>
-    <img src="https://img.shields.io/github/stars/Theyka/Turnstile-Solver.svg?style=for-the-badge&color=red"/>
-    <img src="https://img.shields.io/github/issues/Theyka/Turnstile-Solver?style=for-the-badge&color=red"/>
-    <a href="https://t.me/codarea">
-     <img src="https://img.shields.io/badge/Telegram%20Channel-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white"/>
-    </a>
-  </p>
 </div>
 
----
 
-### 🎁 Donation
-
-- **USDT (TRC20)**: ``TWXNQCnJESt6gxNMX5oHKwQzq4gsbdLNRh``
-- **USDT (Arbitrum One)**: ``0xd8fd1e91c8af318a74a0810505f60ccca4ca0f8c``
-- **BTC**: ``13iiMaYFpCfNdcyFycSdSVmD2yfQciD7AQ``
-- **LTC**: ``LSrLQe2dfpDhGgVvDTRwW72fSyC9VsXp9g``
-
----
-
-### ❓ Looking for a Cheap or Custom CAPTCHA Solution?
-- Need cheap captcha solution as low as 0.1$ per 1k ? Contact me on Telegram:
-
-  <a href="https://t.me/tlb_sh">
-    <img src="https://img.shields.io/badge/Telegram-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white"/>
-  </a>
-
----
 
 ### ❗ Disclaimers
 - I am not responsible for anything that may happen, such as API Blocking, IP ban, etc.
-- This was a quick project that was made for fun and personal use if you want to see further updates, star the repo & create an "issue" [here](https://github.com/Theyka/Turnstile-Solver/issues/)
+- This was a quick project that was made for fun and personal use if you want to see further updates, star the repo & create an "issue" [here]https://github.com/mdashikulislam/turnstile-captcha-solver
 
 ---
 
@@ -182,15 +144,4 @@ If the CAPTCHA is solved successfully, the server will respond with the followin
 }
 ```
 
----
 
-### 🎉 Sponsor
-<a href="https://dashboard.capsolver.com/passport/register?inviteCode=7_Dvkat0RVqc">
-    <img src="https://github.com/user-attachments/assets/176d2a43-2d08-4aa6-bc9d-5e1eb5c3d1a4" alt="Description">
-</a>
-
----
-
-Inspired by [Turnaround](https://github.com/Body-Alhoha/turnaround)
-Original code by [Theyka](https://github.com/Theyka/Turnstile-Solver)
-Changes by [Sexfrance](https://github.com/sexfrance)
